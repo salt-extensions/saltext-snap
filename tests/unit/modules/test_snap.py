@@ -84,8 +84,7 @@ def cmd_run():
 @pytest.fixture
 def snap_list_out():
     # the testapp will fail to parse
-    return dedent(
-        """
+    return dedent("""
             Name               Version                     Rev    Tracking       Publisher          Notes
             bare               1.0                         5      latest/stable  canonical**        base
             bitwarden          2024.4.0                    108    latest/stable  bitwarden**        -
@@ -99,14 +98,12 @@ def snap_list_out():
             hello-world        6.3                         28     latest/stable  canonical**        held
             testapp            1.0                         x2                                       try
             yubioath-desktop   5.0.5                       12     latest/stable  yubico-snap-store  -
-        """
-    ).strip()
+        """).strip()
 
 
 @pytest.fixture
 def snap_list_revisions_out():
-    return dedent(
-        """
+    return dedent("""
             Name               Version                     Rev    Tracking       Publisher          Notes
             bare               1.0                         5      latest/stable  canonical**        base
             bitwarden          2024.4.0                    108    latest/stable  bitwarden**        -
@@ -121,8 +118,7 @@ def snap_list_revisions_out():
             yubioath-desktop   5.0.5                       12     latest/stable  yubico-snap-store  -
             yubioath-desktop   5.0.4                       11     latest/stable  yubico-snap-store  disabled
             yubioath-desktop   5.0.3                       10     latest/stable  yubico-snap-store  disabled
-        """
-    ).strip()
+        """).strip()
 
 
 @pytest.fixture
@@ -137,19 +133,16 @@ def snap_list_api_revisions_out():
 
 @pytest.fixture
 def snap_refresh_list_out():
-    return dedent(
-        """
+    return dedent("""
             Name              Version  Rev  Size   Publisher          Notes
             hello-world       6.4      29   20kB   canonical**        -
             yubioath-desktop  5.1.0    13   238MB  yubico-snap-store  -
-        """
-    ).strip()
+        """).strip()
 
 
 @pytest.fixture
 def snap_get_out():
-    return dedent(
-        """
+    return dedent("""
         {
             "cloud": {
                 "name": "unknown"
@@ -164,28 +157,24 @@ def snap_get_out():
                 "timezone": "UTC"
             }
         }
-        """
-    ).strip()
+        """).strip()
 
 
 @pytest.fixture
 def snap_services_out():
-    return dedent(
-        """
+    return dedent("""
         Service              Startup   Current   Notes
         yubioath-desktop.ea  enabled   active    -
         yubioath-desktop.ei  enabled   inactive  -
         yubioath-desktop.da  disabled  active    -
         yubioath-desktop.di  disabled  inactive  -
         hello-world.foo      enabled   active    -
-    """
-    ).strip()
+    """).strip()
 
 
 @pytest.fixture
 def snap_info_out():
-    return dedent(
-        """
+    return dedent("""
             name:      hello-world
             summary:   The 'hello-world' of snaps
             publisher: Canonical**
@@ -208,14 +197,12 @@ def snap_info_out():
               latest/beta:      6.4 2024-02-27 (29) 20kB -
               latest/edge:      6.4 2024-02-27 (29) 20kB -
             installed:          6.3            (28) 20kB -
-        """
-    ).strip()
+        """).strip()
 
 
 @pytest.fixture
 def snap_info_multi_out():
-    return dedent(
-        """
+    return dedent("""
             name:      hello-world
             summary:   The 'hello-world' of snaps
             publisher: Canonical**
@@ -259,14 +246,12 @@ def snap_info_multi_out():
             installed:          16-2.61.2                              (16928) 109MB core
             ---
             warning: no snap found for "foobar"
-        """
-    ).strip()
+        """).strip()
 
 
 @pytest.fixture
 def snap_info_verbose_out():
-    return dedent(
-        """
+    return dedent("""
             name:    hello-world
             summary: The 'hello-world' of snaps
             health:
@@ -304,14 +289,12 @@ def snap_info_verbose_out():
               latest/beta:      6.4 2024-02-27 (29) 20kB -
               latest/edge:      6.4 2024-02-27 (29) 20kB -
             installed:          6.3            (28) 20kB -
-        """
-    ).strip()
+        """).strip()
 
 
 @pytest.fixture
 def snap_known_out():
-    return dedent(
-        """
+    return dedent("""
             type: snap-revision
             authority-id: canonical
             snap-sha3-384: AH7zvZLOXzHcp3gxaWTmGUOrmsXYJmACXFiCBoydL-H1PlC9G43rGAJs3WiyzOb_
@@ -399,8 +382,7 @@ def snap_known_out():
             KcFL/PoJrr3QuAkbMXhhRSbq0PvoC1Z8BbGg9kp/LF6R7oG49U/+MEQBoc5Tb3NQWZBO7ya9Wr9u
             wgEIEiuZMwzMtvY7RrkO1UpncUEcZcwDOUF+d0+BvYVrIYup66yK3Shd6DXOK3DMq8LVLupj10Il
             mD9rT/NIvhoPJgX2UIrZwrXBBpkY
-        """
-    ).strip()
+        """).strip()
 
 
 @pytest.fixture
