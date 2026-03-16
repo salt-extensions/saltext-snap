@@ -9,6 +9,9 @@ on:
         type: string
         description: JSON string containing information about changed files
 
+permissions:
+  contents: read
+
 jobs:
   Pre-Commit:
     name: Pre-Commit
@@ -41,16 +44,6 @@ jobs:
         run: |
           pre-commit run --show-diff-on-failure --color=always --files ${{ fromJSON(inputs.changed-files)['repo_files'] }}
 
-      - name: Set Exit Status
-        if: always()
-        run: |
-          mkdir exitstatus
-          echo "${{ job.status }}" > exitstatus/${{ github.job }}
-
       - name: Upload Exit Status
         if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
-        with:
-          name: exitstatus-${{ github.job }}
-          path: exitstatus
-          if-no-files-found: error
+        uses: ./.github/actions/upload-exitstatus
