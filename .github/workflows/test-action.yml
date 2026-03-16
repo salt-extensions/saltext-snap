@@ -84,19 +84,11 @@ jobs:
           name: runtests-${{ runner.os }}-py${{ matrix.python-version }}-Salt${{ matrix.salt-version }}.log
           path: artifacts/runtests-*.log
 
-      - name: Set Exit Status
-        if: always()
-        run: |
-          mkdir exitstatus
-          echo "${{ job.status }}" > exitstatus/${{ github.job }}-Py${{ matrix.python-version }}-Salt${{ matrix.salt-version }}
-
       - name: Upload Exit Status
         if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
+        uses: ./.github/actions/upload-exitstatus
         with:
-          name: exitstatus-${{ github.job }}-Py${{ matrix.python-version }}-Salt${{ matrix.salt-version }}
-          path: exitstatus
-          if-no-files-found: error
+          name: ${{ github.job }}-Py${{ matrix.python-version }}-Salt${{ matrix.salt-version }}
 
   Windows:
     runs-on: windows-2025
@@ -181,19 +173,11 @@ jobs:
           name: runtests-${{ runner.os }}-py${{ matrix.python-version }}-Salt${{ matrix.salt-version }}.log
           path: artifacts/runtests-*.log
 
-      - name: Set Exit Status
-        if: always()
-        run: |
-          mkdir exitstatus
-          echo "${{ job.status }}" > exitstatus/${{ github.job }}-Py${{ matrix.python-version }}-Salt${{ matrix.salt-version }}
-
       - name: Upload Exit Status
         if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
+        uses: ./.github/actions/upload-exitstatus
         with:
-          name: exitstatus-${{ github.job }}-Py${{ matrix.python-version }}-Salt${{ matrix.salt-version }}
-          path: exitstatus
-          if-no-files-found: error
+          name: ${{ github.job }}-Py${{ matrix.python-version }}-Salt${{ matrix.salt-version }}
 
   macOS:
     runs-on: macos-14
@@ -273,16 +257,8 @@ jobs:
           name: runtests-${{ runner.os }}-py${{ matrix.python-version }}-Salt${{ matrix.salt-version }}.log
           path: artifacts/runtests-*.log
 
-      - name: Set Exit Status
-        if: always()
-        run: |
-          mkdir exitstatus
-          echo "${{ job.status }}" > exitstatus/${{ github.job }}-Py${{ matrix.python-version }}-Salt${{ matrix.salt-version }}
-
       - name: Upload Exit Status
         if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
+        uses: ./.github/actions/upload-exitstatus
         with:
-          name: exitstatus-${{ github.job }}-Py${{ matrix.python-version }}-Salt${{ matrix.salt-version }}
-          path: exitstatus
-          if-no-files-found: error
+          name: ${{ github.job }}-Py${{ matrix.python-version }}-Salt${{ matrix.salt-version }}
