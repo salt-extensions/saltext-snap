@@ -4,6 +4,13 @@ This project uses [Semantic Versioning](https://semver.org/) - MAJOR.MINOR.PATCH
 
 # Changelog
 
+## 1.0.1 (2026-03-16)
+
+
+### Fixed
+
+- changed something
+
 ## v1.0.0 (2024-09-26)
 
 Initial release of `saltext-snap`.
