@@ -1,14 +1,25 @@
-# Creates a new release and tag.
+# Creates a new release tag.
 # Triggered when the PR created by prepare-release-action.yml is merged.
 # The resulting version is taken from the topmost CHANGELOG.md entry.
 # Fails if any news fragments are left over or the inferred version does not match the PR title.
 #
-# Alternative to releasing by manual tag push handled in tag.yml.
+# The tag is pushed with the default GITHUB_TOKEN, which does not trigger
+# workflows, so this workflow runs the release pipeline itself as an
+# alternative entry point to tag.yml.
 ---
 name: Auto PR Releases
 
 on:
-  pull_request:
+  # zizmor: ignore[dangerous-triggers]
+  # This workflow is used as a workflow_run trigger, so it must not be
+  # modifiable by pull requests: pull_request_target always runs the default
+  # branch's definition, keeping the validation below and the tag push honest.
+  # Note this does not stop a PR from triggering the privileged consumer by
+  # adding a workflow with a colliding name - deploy-package-action.yml
+  # verifies the triggering run's provenance to prevent that, incuding event type.
+  # The checkout below is pinned to the already merged PR, so no untrusted
+  # code runs despite the privileged trigger.
+  pull_request_target:
     branches:
       - main
     types:
@@ -16,11 +27,20 @@ on:
     paths:
       - CHANGELOG.md
 
+cache-mode: none
+
+concurrency:
+  # Guard against duplicate runs for the same release PR.
+  # Never cancel a release in progress.
+  group: ${{ github.workflow }}-${{ github.ref }}
+
+permissions: {}
+
 jobs:
   ensure_trigger:
     # We need this workflow to fail if it was triggered accidentally.
     name: Ensure trigger is valid
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions: {}
 
     steps:
@@ -44,20 +64,23 @@ jobs:
 
   get_version_pr:
     name: Extract version from merged release PR
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     needs:
       - ensure_trigger
     permissions:
-      contents: write  # To push the new tag. This does not cause a tag event.
+      contents: write  # Push new tag with default token. Does not cause a tag push event.
 
     outputs:
       version: ${{ steps.get_version_pr.outputs.version }}
 
     steps:
+
       - name: Checkout code
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
           fetch-tags: true
+          persist-credentials: true
 
       - name: Extract version of merged release PR
         id: get_version_pr
@@ -77,12 +100,21 @@ jobs:
           VERSION: ${{ steps.get_version_pr.outputs.version }}
         run: if git rev-parse "refs/tags/v$VERSION" 2>/dev/null; then exit 1; fi
 
-      - name: Create tag for release
-        uses: mathieudutour/github-tag-action@a22cf08638b34d5badda920f9daf6e72c477b07b  # v6.2
-        with:
-          github_token: ${{ github.token }}
-          custom_tag: ${{ steps.get_version_pr.outputs.version }}
-          create_annotated_tag: true
+      - name: Create and push tag for release
+        env:
+          VERSION: ${{ steps.get_version_pr.outputs.version }}
+          # Tag the actual commit produced by merging this PR,
+          # rather than relying on the default branch's event SHA.
+          MERGE_COMMIT: ${{ github.event.pull_request.merge_commit_sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          bot_name="${APP_SLUG:-github-actions}[bot]"
+          bot_id="$(gh api "users/${bot_name}" --jq .id)"
+          git config user.name "$bot_name"
+          git config user.email "${bot_id}+${bot_name}@users.noreply.github.com"
+          git fetch --depth=1 origin "$MERGE_COMMIT"
+          git tag --annotate --message "Release v$VERSION" "v$VERSION" "$MERGE_COMMIT"
+          git push origin "refs/tags/v$VERSION"
 
       - name: Write version file
         env:
@@ -90,7 +122,7 @@ jobs:
         run: echo -n "$VERSION" > "$RUNNER_TEMP/version.txt"
 
       - name: Upload version
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           archive: false
           path: ${{ runner.temp }}/version.txt
@@ -98,10 +130,14 @@ jobs:
   call_central_workflow:
     needs:
       - get_version_pr
-    uses: ./.github/workflows/ci.yml
+    uses: $/.github/workflows/ci.yml  # actionlint:ignore cache-operation -- release builds must not read caches
+    with:
+      checkout-ref: ${{ github.event.pull_request.merge_commit_sha }}
+    # Release builds must not use cached environments
+    cache-mode: none
     permissions:
       contents: read
-      id-token: write
-      pull-requests: read
+      id-token: write      # codecov upload
+      pull-requests: read  # get changed files
 
   # Further jobs are run separately on `workflow_run` in deploy-package-action.yml

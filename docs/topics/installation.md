@@ -1,6 +1,7 @@
 # Installation
 
-Generally, extensions need to be installed into the same Python environment Salt uses.
+Generally, extensions need to be installed into the same Python
+environment Salt uses.
 
 :::{tab} State
 ```yaml
@@ -23,6 +24,7 @@ pip install saltext-snap
 :::
 
 :::{hint}
-Saltexts are not distributed automatically via the fileserver like custom modules, they need to be installed
-on each node you want them to be available on.
+Saltexts are not distributed automatically via the fileserver like
+custom modules, they need to be installed on each node you want them
+to be available on.
 :::

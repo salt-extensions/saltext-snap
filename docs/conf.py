@@ -41,7 +41,7 @@ dist = distribution("saltext.snap")
 
 
 # -- Project information -----------------------------------------------------
-this_year = datetime.datetime.today().year
+this_year = datetime.datetime.now(tz=datetime.UTC).year
 if this_year == 2024:
     copyright_year = "2024"
 else:
@@ -91,7 +91,6 @@ extensions = [
     "sphinx.ext.todo",
     "sphinx.ext.coverage",
     "sphinx_copybutton",
-    "sphinxcontrib.spelling",
     "saltdomain",
     "sphinxcontrib.towncrier.ext",
     "myst_parser",

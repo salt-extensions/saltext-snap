@@ -1,28 +1,71 @@
 import datetime
 import json
 import os
-import platform
 import shutil
 import sys
 import tempfile
+from contextlib import contextmanager
 from importlib import metadata
 from pathlib import Path
 
+# pylint: disable=import-error
 import nox
 from nox.command import CommandFailed
-from nox.virtualenv import VirtualEnv
+
+# pylint: enable=import-error
+
+# Global Path Definitions
+REPO_ROOT = Path(__file__).resolve().parent
+# Change current directory to REPO_ROOT
+os.chdir(str(REPO_ROOT))
+
+
+@contextmanager
+def prepend_path(path):
+    try:
+        idx = sys.path.index(str(path))
+    except ValueError:
+        idx = None
+    else:
+        sys.path.remove(path)
+    sys.path.insert(0, str(path))
+    try:
+        yield
+    finally:
+        try:
+            sys.path.remove(str(path))
+        except ValueError:
+            pass
+        if idx is not None:
+            sys.path.insert(idx, str(path))
+
+
+with prepend_path(REPO_ROOT / "tools"):
+    from helpers.venv import get_venv_pyver  # pylint: disable=import-error
 
 # Nox options
 #  Reuse existing virtualenvs
 nox.options.reuse_existing_virtualenvs = True
 #  Don't fail on missing interpreters
 nox.options.error_on_missing_interpreters = False
-# Speed up all sessions by using uv if possible
+# Support development against system-wide packages, e.g. for OS-specific
+# extensions whose dependencies are only available as system packages.
+# Note: When toggling this, remove existing session venvs (`make clean`).
+SYSTEM_SITE_PACKAGES = os.environ.get("VENV_SYSTEM_SITE_PACKAGES", "0") == "1"
+VENV_PARAMS = ("--system-site-packages",) if SYSTEM_SITE_PACKAGES else ()
 if tuple(map(int, metadata.version("nox").split("."))) >= (2024, 3):
-    nox.options.default_venv_backend = "uv|virtualenv"
+    if SYSTEM_SITE_PACKAGES:
+        # uv does not consider packages inherited via --system-site-packages
+        # during installs (astral-sh/uv#4466), so don't use it here.
+        nox.options.default_venv_backend = "virtualenv"
+    else:
+        # Speed up all sessions by using uv if possible
+        nox.options.default_venv_backend = "uv|virtualenv"
 
 # Python versions to test against
-PYTHON_VERSIONS = ("3", "3.10", "3.11", "3.12", "3.13", "3.14")
+PYTHON_VERSIONS = ("3.11", "3.12", "3.13", "3.14")
+VENV_PYVER = get_venv_pyver()
+
 # Be verbose when running under a CI context
 CI_RUN = (
     os.environ.get("JENKINS_URL") or os.environ.get("CI") or os.environ.get("DRONE") is not None
@@ -31,18 +74,16 @@ PIP_INSTALL_SILENT = CI_RUN is False
 SKIP_REQUIREMENTS_INSTALL = os.environ.get("SKIP_REQUIREMENTS_INSTALL", "0") == "1"
 EXTRA_REQUIREMENTS_INSTALL = os.environ.get("EXTRA_REQUIREMENTS_INSTALL")
 
-COVERAGE_REQUIREMENT = os.environ.get("COVERAGE_REQUIREMENT") or "coverage==7.14.3"
+COVERAGE_REQUIREMENT = os.environ.get("COVERAGE_REQUIREMENT") or "coverage==7.17.0"
 SALT_REQUIREMENT = os.environ.get("SALT_REQUIREMENT") or "salt>=3006"
 if SALT_REQUIREMENT == "salt==master":
     SALT_REQUIREMENT = "git+https://github.com/saltstack/salt.git@master"
+elif SALT_REQUIREMENT.endswith(".x"):
+    branch = SALT_REQUIREMENT.split("==", maxsplit=1)[1]
+    SALT_REQUIREMENT = f"git+https://github.com/saltstack/salt.git@{branch}"
 
 # Prevent Python from writing bytecode
 os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
-
-# Global Path Definitions
-REPO_ROOT = Path(__file__).resolve().parent
-# Change current directory to REPO_ROOT
-os.chdir(str(REPO_ROOT))
 
 ARTIFACTS_DIR = REPO_ROOT / "artifacts"
 # Make sure the artifacts directory exists
@@ -73,24 +114,23 @@ def _get_session_python_version_info(session):
 
 def _get_pydir(session):
     version_info = _get_session_python_version_info(session)
-    if version_info < (3, 10):
-        session.error("Only Python >= 3.10 is supported")
+    if version_info < (3, 11):
+        session.error("Only Python >= 3.11 is supported")
     return f"py{version_info[0]}.{version_info[1]}"
 
 
 def _install_requirements(
     session,
-    *passed_requirements,  # pylint: disable=unused-argument
-    install_coverage_requirements=True,
-    install_test_requirements=True,
-    install_source=False,
+    *groups,
+    install_coverage_requirements=False,
+    install_source="editable",
     install_salt=True,
-    install_extras=None,
 ):
-    install_extras = install_extras or []
-    no_progress = "--progress-bar=off"
-    if isinstance(session._runner.venv, VirtualEnv) and session._runner.venv.venv_backend == "uv":
+    groups = groups or []
+    if session.venv_backend == "uv":
         no_progress = "--no-progress"
+    else:
+        no_progress = "--progress-bar=off"
     if SKIP_REQUIREMENTS_INSTALL is False:
         # Always have the wheel package installed
         session.install(no_progress, "wheel", silent=PIP_INSTALL_SILENT)
@@ -98,23 +138,7 @@ def _install_requirements(
             session.install(no_progress, COVERAGE_REQUIREMENT, silent=PIP_INSTALL_SILENT)
 
         if install_salt:
-            # Salt does not publish wheels and setuptools 75.6.0+ breaks requirements inclusion during builds,
-            # so we need to constrain setuptools in the build environment. uv reads this from
-            # pyproject.toml, but pip has no equivalent behavior.
-            # We need delete=False for Windows. delete_on_close would work, but is Python 3.12+ only.
-            with tempfile.NamedTemporaryFile(delete=False) as constraints_file:
-                setuptools_constraint = "setuptools<75.6.0"
-                constraints_file.write(setuptools_constraint.encode())
-            env = {
-                "PIP_CONSTRAINT": constraints_file.name,
-            }
-            try:
-                session.install(no_progress, SALT_REQUIREMENT, silent=PIP_INSTALL_SILENT, env=env)
-            finally:
-                os.unlink(constraints_file.name)
-
-        if install_test_requirements:
-            install_extras.append("tests")
+            session.install(no_progress, SALT_REQUIREMENT, silent=PIP_INSTALL_SILENT)
 
         if EXTRA_REQUIREMENTS_INSTALL:
             session.log(
@@ -127,19 +151,34 @@ def _install_requirements(
             install_command += [req.strip() for req in EXTRA_REQUIREMENTS_INSTALL.split()]
             session.install(*install_command, silent=PIP_INSTALL_SILENT)
 
+        cmd = []
+        for group in groups:
+            cmd.extend(("--group", group))
         if install_source:
-            pkg = "."
-            if install_extras:
-                pkg += f"[{','.join(install_extras)}]"
-            session.install("-e", pkg, silent=PIP_INSTALL_SILENT)
-        elif install_extras:
-            pkg = f".[{','.join(install_extras)}]"
-            session.install(pkg, silent=PIP_INSTALL_SILENT)
+            cmd.extend(("-e", ".") if install_source == "editable" else (".",))
+
+        try:
+            session.install(*cmd, silent=PIP_INSTALL_SILENT)
+        except CommandFailed as err:
+            # --group requires pip >= 25.1. Check if that's the cause and upgrade it if so.
+            if err.return_code != 2 or session.venv_backend == "uv":
+                raise
+            pip_version = tuple(
+                int(elem)
+                for elem in session.run("pip", "--version", silent=True, log=False)
+                .removeprefix("pip ")
+                .split(maxsplit=1)[0]
+                .split(".")
+            )
+            if pip_version >= (25, 1):
+                raise
+            session.install("pip>=25.1")
+            session.install(*cmd, silent=PIP_INSTALL_SILENT)
 
 
-@nox.session(python=PYTHON_VERSIONS)
+@nox.session(python=PYTHON_VERSIONS, venv_params=VENV_PARAMS)
 def tests(session):
-    _install_requirements(session, install_source=True)
+    _install_requirements(session, "tests", install_coverage_requirements=True)
 
     sitecustomize_dir = session.run("salt-factories", "--coverage", silent=True, log=False)
     python_path_env_var = os.environ.get("PYTHONPATH") or None
@@ -159,7 +198,7 @@ def tests(session):
         # them to the same directory
         "COVERAGE_FILE": str(COVERAGE_REPORT_DB),
         # Instruct sub processes to also run under coverage
-        "COVERAGE_PROCESS_START": str(REPO_ROOT / ".coveragerc"),
+        "COVERAGE_PROCESS_START": str(REPO_ROOT / "pyproject.toml"),
     }
 
     session.run("coverage", "erase")
@@ -237,6 +276,14 @@ def tests(session):
                 shutil.move(str(COVERAGE_REPORT_DB), str(ARTIFACTS_DIR / COVERAGE_REPORT_DB.name))
 
 
+@nox.session
+def test(session):
+    """
+    Only run the test suite with the selected venv Python version.
+    """
+    session.notify(f"tests-{VENV_PYVER}")
+
+
 class Tee:
     """
     Python class to mimic linux tee behaviour
@@ -260,10 +307,10 @@ class Tee:
 def _lint(session, rcfile, flags, paths, tee_output=True):
     _install_requirements(
         session,
+        "lint",
+        "tests",
         install_salt=False,
-        install_coverage_requirements=False,
-        install_test_requirements=False,
-        install_extras=["lint", "tests"],
+        install_source=True,
     )
 
     if tee_output:
@@ -313,42 +360,7 @@ def _lint(session, rcfile, flags, paths, tee_output=True):
             stdout.close()
 
 
-def _lint_pre_commit(session, rcfile, flags, paths):
-    if "VIRTUAL_ENV" not in os.environ:
-        session.error(
-            "This should be running from within a virtualenv and "
-            "'VIRTUAL_ENV' was not found as an environment variable."
-        )
-    if "pre-commit" not in os.environ["VIRTUAL_ENV"]:
-        session.error(
-            "This should be running from within a pre-commit virtualenv and "
-            f"'VIRTUAL_ENV'({os.environ['VIRTUAL_ENV']}) does not appear to be a pre-commit virtualenv."
-        )
-
-    # Let's patch nox to make it run inside the pre-commit virtualenv
-    try:
-        # nox >= 2024.03.02
-        # pylint: disable=unexpected-keyword-arg
-        venv = VirtualEnv(
-            os.environ["VIRTUAL_ENV"],
-            interpreter=session._runner.func.python,
-            reuse_existing=True,
-            venv_backend="venv",
-        )
-    except TypeError:
-        # nox < 2024.03.02
-        # pylint: disable=unexpected-keyword-arg
-        venv = VirtualEnv(
-            os.environ["VIRTUAL_ENV"],
-            interpreter=session._runner.func.python,
-            reuse_existing=True,
-            venv=True,
-        )
-    session._runner.venv = venv
-    _lint(session, rcfile, flags, paths, tee_output=False)
-
-
-@nox.session(python="3")
+@nox.session(python=VENV_PYVER, venv_params=VENV_PARAMS)
 def lint(session):
     """
     Run PyLint against the code and the test suite. Set PYLINT_REPORT to a path to capture output.
@@ -357,7 +369,7 @@ def lint(session):
     session.notify(f"lint-tests-{session.python}")
 
 
-@nox.session(python="3", name="lint-code")
+@nox.session(python=VENV_PYVER, name="lint-code", venv_params=VENV_PARAMS)
 def lint_code(session):
     """
     Run PyLint against the code. Set PYLINT_REPORT to a path to capture output.
@@ -367,99 +379,45 @@ def lint_code(session):
         paths = session.posargs
     else:
         paths = ["setup.py", "noxfile.py", "src/"]
-    _lint(session, ".pylintrc", flags, paths)
+    _lint(session, "pyproject.toml", flags, paths)
 
 
-@nox.session(python="3", name="lint-tests")
+@nox.session(python=VENV_PYVER, name="lint-tests", venv_params=VENV_PARAMS)
 def lint_tests(session):
     """
     Run PyLint against the test suite. Set PYLINT_REPORT to a path to capture output.
     """
     flags = [
-        "--disable=I,redefined-outer-name,no-member,missing-module-docstring,missing-function-docstring,missing-class-docstring,attribute-defined-outside-init,inconsistent-return-statements,too-few-public-methods,too-many-public-methods",
+        "--disable=I,redefined-outer-name,no-member,missing-module-docstring,missing-function-docstring,missing-class-docstring,attribute-defined-outside-init,inconsistent-return-statements,too-few-public-methods,too-many-arguments,too-many-positional-arguments,too-many-public-methods",
     ]
     if session.posargs:
         paths = session.posargs
     else:
         paths = ["tests/"]
-    _lint(session, ".pylintrc", flags, paths)
+    _lint(session, "pyproject.toml", flags, paths)
 
 
-@nox.session(python=False, name="lint-code-pre-commit")
-def lint_code_pre_commit(session):
-    """
-    Run PyLint against the code. Set PYLINT_REPORT to a path to capture output.
-    """
-    flags = ["--disable=I"]
-    if session.posargs:
-        paths = session.posargs
-    else:
-        paths = ["setup.py", "noxfile.py", "src/"]
-    _lint_pre_commit(session, ".pylintrc", flags, paths)
-
-
-@nox.session(python=False, name="lint-tests-pre-commit")
-def lint_tests_pre_commit(session):
-    """
-    Run PyLint against the code and the test suite. Set PYLINT_REPORT to a path to capture output.
-    """
-    flags = [
-        "--disable=I,redefined-outer-name,no-member,missing-module-docstring,missing-function-docstring,missing-class-docstring,attribute-defined-outside-init,inconsistent-return-statements,too-few-public-methods,too-many-public-methods",
-    ]
-    if session.posargs:
-        paths = session.posargs
-    else:
-        paths = ["tests/"]
-    _lint_pre_commit(session, ".pylintrc", flags, paths)
-
-
-def _get_docs_env(session):
-    env = {}
-    if not os.getenv("PYENCHANT_LIBRARY_PATH"):
-        if sys.platform == "darwin" and platform.processor() == "arm":
-            try:
-                # Ensure docs build works on Apple Silicon, where the default
-                # Homebrew lib path is not autodiscovered.
-                # Needs `brew install enchant`.
-                env["PYENCHANT_LIBRARY_PATH"] = str(
-                    next(Path("/opt/homebrew/lib").glob("libenchant*.dylib"))
-                )
-            except StopIteration:
-                session.warn(
-                    "Failed to autodiscover enchant library. Ensure it's installed (e.g. brew install enchant). "
-                    "If it's installed, set the PYENCHANT_LIBRARY_PATH environment variable to its dylib path."
-                )
-    return env
-
-
-@nox.session(python="3")
+@nox.session(python=VENV_PYVER, venv_params=VENV_PARAMS)
 def docs(session):
     """
     Build Docs
     """
-    _install_requirements(
-        session,
-        install_coverage_requirements=False,
-        install_test_requirements=False,
-        install_source=True,
-        install_extras=["docs"],
-    )
+    _install_requirements(session, "docs")
     os.chdir("docs/")
-    env = _get_docs_env(session)
     session.run("make", "clean", external=True)
-    session.run("make", "linkcheck", "SPHINXOPTS=-W", external=True, env=env)
-    session.run("make", "coverage", "SPHINXOPTS=-W", external=True, env=env)
+    session.run("make", "linkcheck", "SPHINXOPTS=-W", external=True)
+    session.run("make", "coverage", "SPHINXOPTS=-W", external=True)
     docs_coverage_file = os.path.join("_build", "html", "python.txt")
     if os.path.exists(docs_coverage_file):
         with open(docs_coverage_file) as rfh:  # pylint: disable=unspecified-encoding
             contents = rfh.readlines()[2:]
             if contents:
                 session.error("\n" + "".join(contents))
-    session.run("make", "html", "SPHINXOPTS=-W", external=True, env=env)
+    session.run("make", "html", "SPHINXOPTS=-W", external=True)
     os.chdir(str(REPO_ROOT))
 
 
-@nox.session(name="docs-dev", python="3")
+@nox.session(python=VENV_PYVER, name="docs-dev", venv_params=VENV_PARAMS)
 def docs_dev(session):
     """
     Build and serve the Sphinx HTML documentation, with live reloading on file changes, via sphinx-autobuild.
@@ -467,18 +425,12 @@ def docs_dev(session):
     Note: Only use this in INTERACTIVE DEVELOPMENT MODE. This SHOULD NOT be called
         in CI/CD pipelines, as it will hang.
     """
-    _install_requirements(
-        session,
-        install_coverage_requirements=False,
-        install_test_requirements=False,
-        install_source=True,
-        install_extras=["docs", "docsauto"],
-    )
+    _install_requirements(session, "docsauto")
 
     build_dir = Path("docs", "_build", "html")
 
     # Allow specifying sphinx-autobuild options, like --host.
-    args = ["--watch", "."] + session.posargs
+    args = ["--watch", ".", "--ignore", ".*/", "--ignore", "*/__pycache__/*"] + session.posargs
     if not any(arg.startswith("--host") for arg in args):
         # If the user is overriding the host to something other than localhost,
         # it's likely they are rendering on a remote/headless system and don't
@@ -489,22 +441,15 @@ def docs_dev(session):
     if build_dir.exists():
         shutil.rmtree(build_dir)
 
-    env = _get_docs_env(session)
-    session.run("sphinx-autobuild", *args, env=env)
+    session.run("sphinx-autobuild", *args)
 
 
-@nox.session(name="docs-crosslink-info", python="3")
+@nox.session(python=VENV_PYVER, name="docs-crosslink-info", venv_params=VENV_PARAMS)
 def docs_crosslink_info(session):
     """
     Report intersphinx cross links information
     """
-    _install_requirements(
-        session,
-        install_coverage_requirements=False,
-        install_test_requirements=False,
-        install_source=True,
-        install_extras=["docs"],
-    )
+    _install_requirements(session, "docs")
     os.chdir("docs/")
     intersphinx_mapping = json.loads(
         session.run(
